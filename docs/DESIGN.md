@@ -9,11 +9,6 @@
 
 - **레이어**: 단일 FastAPI 앱 + 전처리·라벨/포맷 변환 레이어. 클라이언트 → FastAPI → 이미지/메타 처리 → YOLO 형식 데이터셋 출력.
 - **주요 모듈**: 설계 시 `main.py`(라우트), `utils.py`(전처리·포맷), 데이터셋 디렉터리 구조·YAML 정의.
-- **데이터셋 생성·이미지 수집**: 모두 API로 수행. 이미지 업로드(`POST /api/dataset/frames`) → 이미지 목록 조회(`GET /api/dataset/{id}/images`) → 자동 라벨(`POST /api/dataset/{id}/auto-label`) 순으로 사용.
-- **실행**: 기본 포트 **8081** (다른 메인 모듈과 충돌 방지). `./run.sh` 또는 `uvicorn main:app --port 8081`. `SERVER_PORT` 환경 변수로 변경 가능.
-- **자동 라벨 다운로드 (회사 프록시 등)**  
-  - **권장**: SSH 터널로 우회해 SSL 검증 유지. `ssh -D 1080 user@점프서버` 후 `HTTPS_PROXY=socks5h://127.0.0.1:1080 ./run.sh` 로 실행. 0/1 전환 없이 한 번만 설정하면 됨.  
-  - **대안**: SSH 불가 시 `YOLO_DATASET_FACTORY_SSL_VERIFY=0` 으로 검증 생략 (보안상 비권장).
 
 ## 3. 패턴
 
