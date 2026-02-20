@@ -8,7 +8,7 @@
 |----------|----------|-----------|------|
 | **Annotorious** | BSD 3-Clause | Vue 프론트엔드에서 bbox 그리기/수정 UI로 임베드 (`@annotorious/annotorious` npm 패키지) | [annotorious/annotorious](https://github.com/annotorious/annotorious) |
 
-- **Annotorious**: 브라우저에서 이미지에 사각형(bbox) 어노테이션을 그리거나 수정하는 JavaScript 라이브러리. 본 프로젝트에서는 라벨 편집 화면(`/labeling` → 이미지별 «편집»)에서 사용하며, YOLO 형식(정규화 좌표)과 변환하여 API로 저장합니다.
+- **Annotorious**: 브라우저에서 이미지에 사각형(bbox) 어노테이션을 그리거나 수정하는 JavaScript 라이브러리. 본 프로젝트에서는 라벨 편집 화면(`/labeling` → 이미지별 «편집»)에서 사용하며, YOLO 형식(정규화 좌표)과 변환하여 API로 저장합니다. 편집 화면에는 **객체 목록 사이드바**(CVAT/Label Studio 스타일)를 Vue로 구현해 bbox 목록·클래스명·적합성(confidence) 표시, 목록에서 선택·삭제를 지원하고, 새 bbox 그리기 시 **클래스 선택** 드롭다운과 연동합니다.
 
 ## 기타
 
