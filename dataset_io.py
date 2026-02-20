@@ -1,8 +1,9 @@
 """데이터셋 저장·경로 유틸. YOLO 형식(images/ + labels/) 구조."""
+import json
 import logging
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import yaml
 
@@ -32,6 +33,11 @@ def _sanitize_dataset_id(dataset_id: str) -> str:
     """dataset_id에서 경로로 사용 불가 문자 제거."""
     safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in dataset_id)
     return safe or "default"
+
+
+def create_session_id() -> str:
+    """업로드 진입 시 사용할 새 세션 ID 생성. 세션은 dataset_id와 동일한 저장 구조를 사용한다."""
+    return "session_" + uuid.uuid4().hex[:12]
 
 
 def list_dataset_ids() -> list[str]:
@@ -107,6 +113,37 @@ def write_yolo_label(
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
     logger.debug("레이블 저장: %s (%d boxes)", path, len(boxes))
+    return path
+
+
+def _label_meta_path(dataset_id: str, image_stem: str) -> Path:
+    """레이블 메타데이터 JSON 파일 경로 (labels/{stem}.json)."""
+    return get_dataset_labels_dir(dataset_id) / f"{image_stem}.json"
+
+
+def read_label_meta(dataset_id: str, image_stem: str) -> Optional[dict[str, Any]]:
+    """
+    이미지 stem에 대응하는 레이블 메타데이터(검수 상태·confidence 등) 반환.
+    없으면 None.
+    """
+    path = _label_meta_path(dataset_id, image_stem)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("메타데이터 읽기 실패 %s: %s", path, e)
+        return None
+
+
+def write_label_meta(dataset_id: str, image_stem: str, meta: dict[str, Any]) -> Path:
+    """
+    레이블 메타데이터를 labels/{stem}.json 에 저장.
+    meta: { "image": str, "status": "auto_labeled"|"reviewed"|"manual_labeled", "reviewer"?: str, "objects": [...] }
+    """
+    path = _label_meta_path(dataset_id, image_stem)
+    path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    logger.debug("메타데이터 저장: %s", path)
     return path
 
 
