@@ -4,7 +4,8 @@
       <router-link to="/" class="logo">YOLO Dataset Factory</router-link>
       <nav>
         <router-link to="/">홈</router-link>
-        <router-link to="/labeling">라벨링</router-link>
+        <router-link to="/labeling">작업하기</router-link>
+        <router-link to="/datasets">데이터셋</router-link>
         <a :href="apiDocs" target="_blank" rel="noopener">API Docs</a>
       </nav>
     </header>

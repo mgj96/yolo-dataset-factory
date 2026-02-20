@@ -4,6 +4,7 @@ const routes = [
   { path: '/', name: 'Home', component: () => import('../views/Home.vue'), meta: { title: '홈' } },
   { path: '/labeling', name: 'Labeling', component: () => import('../views/Labeling.vue'), meta: { title: '라벨링' } },
   { path: '/labeling/edit/:datasetId/:filename', name: 'LabelEdit', component: () => import('../views/LabelEdit.vue'), meta: { title: '라벨 편집' } },
+  { path: '/datasets', name: 'Datasets', component: () => import('../views/Datasets.vue'), meta: { title: '데이터셋' } },
 ]
 
 const router = createRouter({

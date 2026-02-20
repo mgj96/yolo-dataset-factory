@@ -29,13 +29,15 @@ export async function putApi(path, body) {
 
 /**
  * 이미지(프레임) 업로드. FormData 사용, Content-Type 은 설정하지 않음.
- * @param {string} datasetId
+ * @param {string} [datasetId] - 비우거나 생략 시 새 세션 생성
  * @param {File[]} files
+ * @param {boolean} [newSession] - true면 dataset_id 없이 세션 생성
  * @returns {Promise<{ dataset_id: string, saved: { filename: string, path: string }[] }>}
  */
-export async function uploadFrames(datasetId, files) {
+export async function uploadFrames(datasetId, files, newSession = false) {
   const form = new FormData()
-  form.append('dataset_id', datasetId)
+  if (!newSession && datasetId) form.append('dataset_id', datasetId)
+  if (newSession) form.append('session', 'true')
   for (const file of files) {
     form.append('files', file)
   }
