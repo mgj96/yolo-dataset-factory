@@ -6,6 +6,9 @@
 set -e
 cd "$(dirname "$0")"
 
+# 원격 다운로드(CLIP 등) SSL 검증: 기본 비검증(0)으로 통신. 검증 필요 시 export YOLO_DATASET_FACTORY_SSL_VERIFY=1
+export YOLO_DATASET_FACTORY_SSL_VERIFY="${YOLO_DATASET_FACTORY_SSL_VERIFY:-0}"
+
 API_PORT="${SERVER_PORT:-8081}"
 VUE_PORT="${VUE_PORT:-8100}"
 LOG_TS=$(date '+%Y-%m-%d %H:%M:%S')
