@@ -3,59 +3,60 @@ YOLOWorld 기반 자동 레이블링.
 클래스명 리스트 + 이미지 경로 → 정규화된 YOLO 형식 bbox 반환.
 """
 import logging
-import os
 import ssl
+import urllib.request
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import config
 from dataset_io import YoloBox
 
+# (class_index, x_c, y_c, w, h, confidence) — 메타데이터·검수용
+YoloBoxWithConf = tuple[int, float, float, float, float, float]
+
 logger = logging.getLogger(__name__)
 
 
-def _install_socks_proxy_if_set() -> None:
-    """HTTPS_PROXY/ALL_PROXY가 socks5h:// 이면 urllib이 SSH 터널 등 SOCKS로 나가도록 설정. SSL 검증 유지."""
-    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("ALL_PROXY") or ""
-    proxy = proxy.strip()
-    if not proxy.lower().startswith("socks5"):
+def _make_ssl_no_verify_context() -> ssl.SSLContext:
+    """검증 비활성화 SSL 컨텍스트 (캐시/기본값 의존 없이 직접 생성)."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def _install_urllib_no_verify_opener() -> None:
+    """urllib 전역 opener를 SSL 검증 없이 HTTPS 요청하도록 교체. CLIP 등 urlopen 사용처에 적용."""
+    ctx = _make_ssl_no_verify_context()
+    urllib.request.install_opener(urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx)))
+
+
+def _apply_ssl_no_verify() -> None:
+    """자체서명/프록시 환경: SSL 검증 비활성화. 모듈 로드 시 + run_yoloworld_labeling 진입 시 적용."""
+    if config.SSL_VERIFY_FOR_DOWNLOADS:
         return
-    try:
-        from urllib.request import build_opener, install_opener
+    ssl._create_default_https_context = ssl._create_unverified_context
+    _install_urllib_no_verify_opener()
 
-        import socks
 
-        try:
-            from sockshandler import SocksiPyHandler
-        except ImportError:
-            from socks.sockshandler import SocksiPyHandler
-
-        parsed = urlparse(proxy)
-        host = parsed.hostname or "127.0.0.1"
-        port = parsed.port or 1080
-        opener = build_opener(SocksiPyHandler(socks.SOCKS5, host, port))
-        install_opener(opener)
-        logger.info("다운로드 프록시 적용: socks5://%s:%s (SSL 검증 유지)", host, port)
-    except Exception as e:
-        logger.warning("SOCKS 프록시 설정 실패(%s), 기본 연결 사용: %s", proxy, e)
+_apply_ssl_no_verify()
 
 
 def _predict_and_boxes(
     model: Any,
     image_path: Path,
     conf_threshold: float = 0.25,
-) -> list[YoloBox]:
-    """단일 이미지 추론 후 정규화된 (class_index, x_c, y_c, w, h) 리스트 반환."""
+) -> list[YoloBoxWithConf]:
+    """단일 이미지 추론 후 정규화된 (class_index, x_c, y_c, w, h, confidence) 리스트 반환."""
     results = model.predict(str(image_path), conf=conf_threshold, verbose=False)
     if not results:
         return []
     r = results[0]
     if r.boxes is None or len(r.boxes) == 0:
         return []
-    # xywhn: (N, 4) normalized; cls: (N,) class index
     xywhn = r.boxes.xywhn
     cls_ids = r.boxes.cls
+    confs = getattr(r.boxes, "conf", None)
     if xywhn is None:
         return []
     try:
@@ -64,18 +65,20 @@ def _predict_and_boxes(
             xywhn = xywhn.cpu().numpy()
         if isinstance(cls_ids, torch.Tensor):
             cls_ids = cls_ids.cpu().numpy()
+        if confs is not None and isinstance(confs, torch.Tensor):
+            confs = confs.cpu().numpy()
     except Exception:
         pass
-    boxes: list[YoloBox] = []
+    boxes: list[YoloBoxWithConf] = []
     for i in range(len(xywhn)):
         x_c, y_c, w, h = float(xywhn[i, 0]), float(xywhn[i, 1]), float(xywhn[i, 2]), float(xywhn[i, 3])
         c = int(cls_ids[i]) if cls_ids is not None else 0
-        # 클램프 0~1
+        conf = float(confs[i]) if confs is not None and i < len(confs) else 0.0
         x_c = max(0.0, min(1.0, x_c))
         y_c = max(0.0, min(1.0, y_c))
         w = max(0.0, min(1.0, w))
         h = max(0.0, min(1.0, h))
-        boxes.append((c, x_c, y_c, w, h))
+        boxes.append((c, x_c, y_c, w, h, conf))
     return boxes
 
 
@@ -84,26 +87,43 @@ def run_yoloworld_labeling(
     class_names: list[str],
     model_name: str = "yolov8s-worldv2.pt",
     conf_threshold: float = 0.25,
-) -> dict[str, list[YoloBox]]:
+) -> dict[str, list[YoloBoxWithConf]]:
     """
-    이미지 경로 목록에 대해 YOLOWorld 추론 후 stem -> YoloBox 리스트 반환.
+    이미지 경로 목록에 대해 YOLOWorld 추론 후 stem -> (class_index, x_c, y_c, w, h, confidence) 리스트 반환.
     class_names 순서가 클래스 인덱스 0, 1, ... 과 대응한다.
     """
-    # SSH 터널 등 SOCKS 프록시가 있으면 먼저 적용 (SSL 검증 유지, 0/1 전환 불필요)
-    _install_socks_proxy_if_set()
-    if not config.SSL_VERIFY_FOR_DOWNLOADS:
-        # SOCKS 미사용 시에만: 자체서명/프록시 환경에서 SSL 검증 생략 (YOLO_DATASET_FACTORY_SSL_VERIFY=0)
-        ssl._create_default_https_context = ssl._create_unverified_context
-
     from ultralytics import YOLO
 
     if not class_names:
         return {p.stem: [] for p in image_paths}
 
     model = YOLO(model_name)
-    model.set_classes(class_names)
+    # CLIP _download 내부에서 urllib.request.urlopen 호출. 해당 호출 시에만 no-verify 적용되도록 _download 실행 구간에서 urlopen 일시 교체.
+    if not config.SSL_VERIFY_FOR_DOWNLOADS:
+        logger.info("SSL 검증 비활성화: clip 다운로드 구간에서 no-verify 적용.")
+        _install_urllib_no_verify_opener()
+        try:
+            import clip.clip as _clip_mod
+            _orig_download = _clip_mod._download
+            _orig_urlopen = urllib.request.urlopen
+            def _patched_download(url, download_root=None):
+                def _wrapped_urlopen(req, *a, **kw):
+                    _install_urllib_no_verify_opener()
+                    return _orig_urlopen(req, *a, **kw)
+                urllib.request.urlopen = _wrapped_urlopen
+                try:
+                    return _orig_download(url, download_root)
+                finally:
+                    urllib.request.urlopen = _orig_urlopen
+            _clip_mod._download = _patched_download
+        except Exception as e:
+            logger.warning("clip 모듈 패치 스킵: %s", e)
+        model.set_classes(class_names)
+    else:
+        logger.info("SSL 검증 활성화 상태. 자체서명/프록시 오류 시 run.sh에서 export YOLO_DATASET_FACTORY_SSL_VERIFY=0 주석 해제 후 서버 재시작.")
+        model.set_classes(class_names)
 
-    out: dict[str, list[YoloBox]] = {}
+    out: dict[str, list[YoloBoxWithConf]] = {}
     for path in image_paths:
         if not path.exists():
             logger.warning("이미지 없음: %s", path)
